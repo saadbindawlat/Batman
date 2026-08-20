@@ -27,7 +27,7 @@ Because the game loads JSON, use a local web server instead of opening `index.ht
 ### Python 3
 
 ```bash
-cd /home/runner/work/Batman/Batman
+cd Batman
 python3 -m http.server 8000
 ```
 
@@ -35,7 +35,7 @@ Then open <http://localhost:8000>.
 
 ## Edit the presentation content
 
-Update `/home/runner/work/Batman/Batman/data/dialogue.json` before each presentation.
+Update `data/dialogue.json` before each presentation.
 
 Each checkpoint has:
 
@@ -69,7 +69,7 @@ This repository is ready to deploy directly from the **root** of the default bra
 Right now, each character is drawn in code for a consistent original style. If you want to replace those with custom PNG sprites later:
 
 1. Add image files such as `assets/characters/batman.png`, `assets/characters/bane.png`, etc.
-2. Load them in the Phaser `preload()` method inside `/home/runner/work/Batman/Batman/js/game.js`.
+2. Load them in the Phaser `preload()` method inside `js/game.js`.
 3. Replace the `buildCharacterAvatar(...)` calls with `this.add.image(...)` or `this.add.sprite(...)` using the matching filenames.
 4. Keep image sizes roughly consistent so the scene stays balanced.
 
