@@ -63,6 +63,7 @@ code {
 }
 
 #game-container {
+  position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   min-height: 360px;
@@ -75,6 +76,119 @@ code {
   border-radius: 16px;
 }
 
+#hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px;
+  pointer-events: none;
+}
+
+#hud-hint {
+  display: inline-block;
+  background: rgba(6, 8, 20, 0.7);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 8px 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+#speech-bubble {
+  max-width: 480px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  padding: 14px 18px;
+}
+
+#speech-character {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+#speech-city {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+#speech-message {
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#interact-prompt {
+  display: inline-block;
+  background: rgba(6, 8, 20, 0.82);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 8px 16px;
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+#progress-tracker {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 10px 14px;
+  min-width: 180px;
+  pointer-events: none;
+}
+
+#progress-title {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+#progress-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#progress-list li {
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#progress-list li::before {
+  content: "○";
+  color: var(--panel-border);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+#progress-list li.collected {
+  color: var(--text);
+}
+
+#progress-list li.collected::before {
+  content: "✓";
+  color: var(--accent);
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 12px;
@@ -83,5 +197,12 @@ code {
   .page-header,
   .game-frame {
     border-radius: 16px;
+  }
+
+  #progress-tracker {
+    top: 8px;
+    right: 8px;
+    min-width: 140px;
+    font-size: 0.75rem;
   }
 }
