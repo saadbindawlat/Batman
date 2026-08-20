@@ -1,0 +1,44 @@
+{
+  "checkpoints": [
+    {
+      "character": "Batman",
+      "city": "Wayne Plaza",
+      "message": "Welcome to the team tour. I'll guide you across Gotham and introduce each teammate's latest update."
+    },
+    {
+      "character": "Bane",
+      "city": "Gotham Docks",
+      "message": "Backend integration is steady. APIs are connected, the core flows are stable, and the next step is polishing edge-case handling."
+    },
+    {
+      "character": "Joker",
+      "city": "Arkham Square",
+      "message": "The demo storyline and presentation flow are in place, and we're refining the most memorable moments so the walkthrough feels fun instead of flat."
+    },
+    {
+      "character": "Harley Quinn",
+      "city": "Diamond District",
+      "message": "UI styling is nearly wrapped up. Colors, motion, and callouts are being tuned so every update stays readable on a projector."
+    },
+    {
+      "character": "Scarecrow",
+      "city": "Feargate Labs",
+      "message": "Testing is focused on risky interactions. We've captured the biggest issues, fixed the blockers, and are watching for regressions."
+    },
+    {
+      "character": "Robin",
+      "city": "Signal Tower",
+      "message": "Sprint coordination is on track. Tasks are assigned, dependencies are visible, and the team has a clear path through the remaining work."
+    },
+    {
+      "character": "Catwoman",
+      "city": "Midnight Market",
+      "message": "Client feedback has been gathered and prioritized. The highest-impact requests are already folded into the next round of improvements."
+    },
+    {
+      "character": "Arkham Knight",
+      "city": "Knightfall Keep",
+      "message": "Release prep is underway. The final checklist covers packaging, presentation readiness, and a smooth handoff for launch day."
+    }
+  ]
+}
