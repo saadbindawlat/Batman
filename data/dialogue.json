@@ -3,41 +3,65 @@
     {
       "character": "Batman",
       "city": "Wayne Plaza",
+      "district": "Wayne Plaza",
+      "x": 0,
+      "z": 4,
       "message": "Welcome to the team tour. I'll guide you across Gotham and introduce each teammate's latest update."
-    },
-    {
-      "character": "Bane",
-      "city": "Gotham Docks",
-      "message": "Backend integration is steady. APIs are connected, the core flows are stable, and the next step is polishing edge-case handling."
-    },
-    {
-      "character": "Joker",
-      "city": "Arkham Square",
-      "message": "The demo storyline and presentation flow are in place, and we're refining the most memorable moments so the walkthrough feels fun instead of flat."
-    },
-    {
-      "character": "Harley Quinn",
-      "city": "Diamond District",
-      "message": "UI styling is nearly wrapped up. Colors, motion, and callouts are being tuned so every update stays readable on a projector."
-    },
-    {
-      "character": "Scarecrow",
-      "city": "Feargate Labs",
-      "message": "Testing is focused on risky interactions. We've captured the biggest issues, fixed the blockers, and are watching for regressions."
     },
     {
       "character": "Robin",
       "city": "Signal Tower",
+      "district": "Wayne Plaza",
+      "x": -6,
+      "z": 10,
       "message": "Sprint coordination is on track. Tasks are assigned, dependencies are visible, and the team has a clear path through the remaining work."
+    },
+    {
+      "character": "Harley Quinn",
+      "city": "Diamond District",
+      "district": "Wayne Plaza",
+      "x": 7,
+      "z": 10,
+      "message": "UI styling is nearly wrapped up. Colors, motion, and callouts are being tuned so every update stays readable on a projector."
+    },
+    {
+      "character": "Joker",
+      "city": "Arkham Square",
+      "district": "Arkham Square",
+      "x": -35,
+      "z": -35,
+      "message": "The demo storyline and presentation flow are in place, and we're refining the most memorable moments so the walkthrough feels fun instead of flat."
+    },
+    {
+      "character": "Scarecrow",
+      "city": "Feargate Labs",
+      "district": "Arkham Square",
+      "x": -42,
+      "z": -28,
+      "message": "Testing is focused on risky interactions. We've captured the biggest issues, fixed the blockers, and are watching for regressions."
     },
     {
       "character": "Catwoman",
       "city": "Midnight Market",
+      "district": "Arkham Square",
+      "x": -28,
+      "z": -42,
       "message": "Client feedback has been gathered and prioritized. The highest-impact requests are already folded into the next round of improvements."
+    },
+    {
+      "character": "Bane",
+      "city": "Gotham Docks",
+      "district": "Gotham Docks",
+      "x": 38,
+      "z": 38,
+      "message": "Backend integration is steady. APIs are connected, the core flows are stable, and the next step is polishing edge-case handling."
     },
     {
       "character": "Arkham Knight",
       "city": "Knightfall Keep",
+      "district": "Gotham Docks",
+      "x": 44,
+      "z": 30,
       "message": "Release prep is underway. The final checklist covers packaging, presentation readiness, and a smooth handoff for launch day."
     }
   ]

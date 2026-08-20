@@ -5,29 +5,28 @@
 
   const CONTAINER_ID = "game-container";
   const DIALOGUE_URL = "data/dialogue.json";
-  const CHECKPOINT_RADIUS = 4.5;
+  const CHECKPOINT_RADIUS = 5;
+  const VEHICLE_ENTER_RADIUS = 5;
   const MOVE_SPEED = 9;
+  const VEHICLE_MOVE_SPEED = 22;
   const TURN_SPEED = 10;
-  const WORLD_HALF_SIZE = 46;
+  const VEHICLE_TURN_SPEED = 3.5;
+  const WORLD_HALF_SIZE = 60;
 
-  // Fixed layout for the checkpoints along a loop through the city block.
-  // Order matches data/dialogue.json.
-  const CHECKPOINT_POSITIONS = [
-    { x: 0, z: 0 }, // Batman / start
-    { x: 30, z: -10 }, // Bane / Gotham Docks
-    { x: 24, z: 22 }, // Joker / Arkham Square
-    { x: -2, z: 34 }, // Harley Quinn / Diamond District
-    { x: -28, z: 20 }, // Scarecrow / Feargate Labs
-    { x: -32, z: -12 }, // Robin / Signal Tower
-    { x: -8, z: -32 }, // Catwoman / Midnight Market
-    { x: 20, z: -30 }, // Arkham Knight / Knightfall Keep
-  ];
+  // Vehicle spawn position (near Wayne Plaza hub)
+  const VEHICLE_SPAWN = { x: 6, z: 0 };
 
   const state = {
     checkpoints: [],
+    markers: null,
     activeCheckpointIndex: -1,
+    nearVehicle: false,
+    inVehicle: false,
+    collectedSet: new Set(),
+    promptTarget: null, // 'vehicle' | 'vehicle_exit' | checkpoint index | null
     keys: Object.create(null),
     clock: null,
+    ringTime: 0,
   };
 
   function init() {
@@ -40,14 +39,18 @@
     const camera = buildCamera(container);
     const renderer = buildRenderer(container);
     const player = buildPlayer(scene);
+    const vehicle = buildVehicle(scene);
     buildGround(scene);
     buildBuildings(scene);
-    const markers = buildCheckpointMarkers(scene);
+    buildDistrictLabels(scene);
 
     state.clock = new THREE.Clock();
 
     window.addEventListener("keydown", (event) => {
       state.keys[event.code] = true;
+      if (event.code === "KeyE") {
+        handleInteract(player, vehicle);
+      }
     });
     window.addEventListener("keyup", (event) => {
       state.keys[event.code] = false;
@@ -57,18 +60,17 @@
 
     loadDialogue().then((checkpoints) => {
       state.checkpoints = checkpoints;
-      if (state.activeCheckpointIndex !== -1) {
-        showCheckpointMessage(state.activeCheckpointIndex);
-      }
+      buildCheckpointMarkers(scene, checkpoints);
+      buildProgressList(checkpoints);
     });
 
-    animate(scene, camera, renderer, player, markers);
+    animate(scene, camera, renderer, player, vehicle);
   }
 
   function buildScene() {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x050815);
-    scene.fog = new THREE.Fog(0x050815, 35, 130);
+    scene.fog = new THREE.Fog(0x050815, 50, 180);
 
     const ambient = new THREE.AmbientLight(0x33406b, 1.1);
     scene.add(ambient);
@@ -83,8 +85,6 @@
   }
 
   function addBatSignal(scene) {
-    // A simple glowing disc with a bat silhouette plus an upward light cone,
-    // standing in for the iconic Gotham bat-signal without copying any art.
     const towerGeometry = new THREE.CylinderGeometry(0.6, 0.9, 14, 8);
     const towerMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1d2b });
     const tower = new THREE.Mesh(towerGeometry, towerMaterial);
@@ -125,7 +125,7 @@
       60,
       container.clientWidth / Math.max(container.clientHeight, 1),
       0.1,
-      500
+      600
     );
     camera.position.set(0, 6, 10);
     return camera;
@@ -147,22 +147,41 @@
   }
 
   function buildGround(scene) {
-    const groundGeometry = new THREE.PlaneGeometry(WORLD_HALF_SIZE * 2.4, WORLD_HALF_SIZE * 2.4);
+    const sz = WORLD_HALF_SIZE * 2.4;
+    const groundGeometry = new THREE.PlaneGeometry(sz, sz);
     const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x14182a });
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
     const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x1f2338 });
-    const roadNS = new THREE.Mesh(new THREE.PlaneGeometry(6, WORLD_HALF_SIZE * 2.4), roadMaterial);
+
+    // Main N-S road
+    const roadNS = new THREE.Mesh(new THREE.PlaneGeometry(6, sz), roadMaterial);
     roadNS.rotation.x = -Math.PI / 2;
     roadNS.position.y = 0.01;
     scene.add(roadNS);
 
-    const roadEW = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_HALF_SIZE * 2.4, 6), roadMaterial);
+    // Main E-W road
+    const roadEW = new THREE.Mesh(new THREE.PlaneGeometry(sz, 6), roadMaterial);
     roadEW.rotation.x = -Math.PI / 2;
     roadEW.position.y = 0.01;
     scene.add(roadEW);
+
+    // Diagonal road toward Arkham Square (NW)
+    const diagLen = 80;
+    const diagNW = new THREE.Mesh(new THREE.PlaneGeometry(5, diagLen), roadMaterial);
+    diagNW.rotation.x = -Math.PI / 2;
+    diagNW.rotation.z = Math.PI / 4;
+    diagNW.position.set(-20, 0.01, -20);
+    scene.add(diagNW);
+
+    // Diagonal road toward Gotham Docks (SE)
+    const diagSE = new THREE.Mesh(new THREE.PlaneGeometry(5, diagLen), roadMaterial);
+    diagSE.rotation.x = -Math.PI / 2;
+    diagSE.rotation.z = Math.PI / 4;
+    diagSE.position.set(20, 0.01, 20);
+    scene.add(diagSE);
   }
 
   function buildBuildings(scene) {
@@ -174,16 +193,22 @@
     });
 
     const layout = [
+      // Wayne Plaza area
       { x: 16, z: -18, w: 8, d: 8, h: 18 },
       { x: -18, z: -16, w: 9, d: 7, h: 24 },
       { x: 18, z: 14, w: 7, d: 9, h: 15 },
       { x: -16, z: 16, w: 8, d: 8, h: 20 },
-      { x: 30, z: 2, w: 6, d: 6, h: 12 },
-      { x: -30, z: 4, w: 7, d: 6, h: 16 },
-      { x: 8, z: -34, w: 8, d: 7, h: 22 },
-      { x: -10, z: -34, w: 6, d: 6, h: 13 },
-      { x: 6, z: 32, w: 7, d: 7, h: 19 },
-      { x: -6, z: 32, w: 8, d: 6, h: 11 },
+      { x: 8, z: -20, w: 6, d: 6, h: 12 },
+      // Arkham Square area (NW)
+      { x: -30, z: -30, w: 9, d: 9, h: 22 },
+      { x: -50, z: -24, w: 7, d: 7, h: 16 },
+      { x: -24, z: -50, w: 8, d: 6, h: 19 },
+      { x: -46, z: -46, w: 6, d: 8, h: 13 },
+      // Gotham Docks area (SE)
+      { x: 30, z: 30, w: 9, d: 9, h: 20 },
+      { x: 50, z: 24, w: 7, d: 6, h: 14 },
+      { x: 24, z: 50, w: 8, d: 7, h: 18 },
+      { x: 48, z: 48, w: 6, d: 6, h: 11 },
     ];
 
     layout.forEach((spec, index) => {
@@ -194,7 +219,6 @@
       building.position.set(spec.x, spec.h / 2, spec.z);
       scene.add(building);
 
-      // A handful of lit windows per building face, kept intentionally simple.
       const rows = Math.max(2, Math.floor(spec.h / 4));
       for (let row = 0; row < rows; row += 1) {
         const windowGeometry = new THREE.PlaneGeometry(spec.w * 0.6, 0.6);
@@ -205,10 +229,26 @@
     });
   }
 
-  function buildCheckpointMarkers(scene) {
-    return CHECKPOINT_POSITIONS.map((pos, index) => {
+  // Simple flat text-substitute district marker — a glowing plane with
+  // a colored point light so districts are visually identifiable on the map.
+  function buildDistrictLabels(scene) {
+    const districts = [
+      { label: "Wayne Plaza", x: 0, z: -2, color: 0xffd54a },
+      { label: "Arkham Square", x: -38, z: -38, color: 0xff5a5a },
+      { label: "Gotham Docks", x: 40, z: 40, color: 0x5ad1ff },
+    ];
+
+    districts.forEach(({ x, z, color }) => {
+      const light = new THREE.PointLight(color, 0.5, 35);
+      light.position.set(x, 10, z);
+      scene.add(light);
+    });
+  }
+
+  function buildCheckpointMarkers(scene, checkpoints) {
+    const markers = checkpoints.map((cp, index) => {
       const group = new THREE.Group();
-      group.position.set(pos.x, 0, pos.z);
+      group.position.set(cp.x, 0, cp.z);
 
       const isStart = index === 0;
       const color = isStart ? 0xffd54a : 0x5ad1ff;
@@ -242,8 +282,78 @@
 
       scene.add(group);
 
-      return { group, index, position: pos };
+      return { group, index, position: { x: cp.x, z: cp.z } };
     });
+
+    state.markers = markers;
+    return markers;
+  }
+
+  function buildVehicle(scene) {
+    const vehicle = new THREE.Group();
+    vehicle.position.set(VEHICLE_SPAWN.x, 0, VEHICLE_SPAWN.z);
+
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x101218 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0xffd54a, emissive: 0xffd54a, emissiveIntensity: 0.4 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x3a4a8a, transparent: true, opacity: 0.6 });
+
+    // Main body
+    const bodyGeo = new THREE.BoxGeometry(2.4, 0.55, 5.2);
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.7;
+    vehicle.add(body);
+
+    // Cockpit canopy
+    const canopyGeo = new THREE.BoxGeometry(1.4, 0.5, 2.0);
+    const canopy = new THREE.Mesh(canopyGeo, glassMat);
+    canopy.position.set(0, 1.15, -0.3);
+    vehicle.add(canopy);
+
+    // Front wing fins
+    const finGeo = new THREE.BoxGeometry(3.8, 0.15, 1.2);
+    const fins = new THREE.Mesh(finGeo, bodyMat);
+    fins.position.set(0, 0.55, -1.8);
+    vehicle.add(fins);
+
+    // Rear stabilizer
+    const stabGeo = new THREE.BoxGeometry(2.0, 0.8, 0.3);
+    const stab = new THREE.Mesh(stabGeo, bodyMat);
+    stab.position.set(0, 1.0, 2.2);
+    vehicle.add(stab);
+
+    // Exhaust glow strip
+    const exhaustGeo = new THREE.BoxGeometry(0.25, 0.18, 0.5);
+    const exhaustL = new THREE.Mesh(exhaustGeo, accentMat);
+    exhaustL.position.set(-0.7, 0.7, 2.5);
+    vehicle.add(exhaustL);
+    const exhaustR = new THREE.Mesh(exhaustGeo, accentMat);
+    exhaustR.position.set(0.7, 0.7, 2.5);
+    vehicle.add(exhaustR);
+
+    // Wheels (4x)
+    const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 12);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1a1d22 });
+    const wheelPositions = [
+      { x: -1.3, z: -1.6 },
+      { x: 1.3, z: -1.6 },
+      { x: -1.3, z: 1.6 },
+      { x: 1.3, z: 1.6 },
+    ];
+    wheelPositions.forEach(({ x, z }) => {
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(x, 0.35, z);
+      vehicle.add(wheel);
+    });
+
+    // Light
+    const vLight = new THREE.PointLight(0xffd54a, 0.6, 12);
+    vLight.position.set(0, 1.2, -2.2);
+    vehicle.add(vLight);
+
+    scene.add(vehicle);
+
+    return { root: vehicle, facing: 0 };
   }
 
   function buildPlayer(scene) {
@@ -307,15 +417,78 @@
       .catch(() => []);
   }
 
-  function animate(scene, camera, renderer, player, markers) {
+  function buildProgressList(checkpoints) {
+    const list = document.getElementById("progress-list");
+    if (!list) return;
+    list.innerHTML = "";
+    checkpoints.forEach((cp, index) => {
+      const li = document.createElement("li");
+      li.id = "progress-item-" + index;
+      li.textContent = cp.character;
+      list.appendChild(li);
+    });
+  }
+
+  function handleInteract(player, vehicle) {
+    if (state.inVehicle) {
+      // Exit vehicle: place player next to vehicle
+      state.inVehicle = false;
+      player.root.position.set(
+        vehicle.root.position.x + 2.5,
+        0,
+        vehicle.root.position.z
+      );
+      player.root.visible = true;
+      state.promptTarget = null;
+      hideInteractPrompt();
+      return;
+    }
+
+    if (state.promptTarget === "vehicle") {
+      // Enter vehicle — promptTarget will be updated to vehicle_exit by updateProximity on next frame
+      state.inVehicle = true;
+      player.root.visible = false;
+      return;
+    }
+
+    if (typeof state.promptTarget === "number") {
+      triggerCheckpoint(state.promptTarget);
+    }
+  }
+
+  function triggerCheckpoint(index) {
+    const checkpoint = state.checkpoints[index];
+    if (!checkpoint) return;
+
+    state.collectedSet.add(index);
+    markCollected(index);
+    showCheckpointMessage(index);
+  }
+
+  function markCollected(index) {
+    const li = document.getElementById("progress-item-" + index);
+    if (li) li.classList.add("collected");
+  }
+
+  function animate(scene, camera, renderer, player, vehicle) {
     const delta = Math.min(state.clock.getDelta(), 0.1);
 
-    updatePlayerMovement(player, delta);
-    updateCamera(camera, player);
-    updateCheckpointProximity(player, markers);
+    if (state.inVehicle) {
+      updateVehicleMovement(vehicle, delta);
+      // Keep player hidden inside vehicle
+      player.root.position.copy(vehicle.root.position);
+      player.facing = vehicle.facing;
+      updateCamera(camera, vehicle);
+    } else {
+      updatePlayerMovement(player, delta);
+      updateCamera(camera, player);
+    }
+
+    updateProximity(player, vehicle);
+    updateCheckpointRingAnimation(delta);
 
     renderer.render(scene, camera);
-    requestAnimationFrame(() => animate(scene, camera, renderer, player, markers));
+    requestAnimationFrame(() => animate(scene, camera, renderer, player, vehicle));
   }
 
   function updatePlayerMovement(player, delta) {
@@ -348,62 +521,158 @@
     }
   }
 
-  function updateCamera(camera, player) {
-    const distance = 8;
-    const height = 4.5;
+  function updateVehicleMovement(vehicle, delta) {
+    const forward = isKeyDown("KeyW", "ArrowUp");
+    const backward = isKeyDown("KeyS", "ArrowDown");
+    const left = isKeyDown("KeyA", "ArrowLeft");
+    const right = isKeyDown("KeyD", "ArrowRight");
+
+    let throttle = 0;
+    if (forward) throttle = -1;
+    if (backward) throttle = 1;
+
+    if (throttle !== 0) {
+      vehicle.root.position.x += Math.sin(vehicle.facing) * throttle * VEHICLE_MOVE_SPEED * delta;
+      vehicle.root.position.z += Math.cos(vehicle.facing) * throttle * VEHICLE_MOVE_SPEED * delta;
+      vehicle.root.position.x = clamp(vehicle.root.position.x, -WORLD_HALF_SIZE, WORLD_HALF_SIZE);
+      vehicle.root.position.z = clamp(vehicle.root.position.z, -WORLD_HALF_SIZE, WORLD_HALF_SIZE);
+    }
+
+    if (left) {
+      vehicle.facing -= VEHICLE_TURN_SPEED * delta * (throttle !== 0 ? 1 : 0.4);
+    }
+    if (right) {
+      vehicle.facing += VEHICLE_TURN_SPEED * delta * (throttle !== 0 ? 1 : 0.4);
+    }
+
+    vehicle.root.rotation.y = -vehicle.facing;
+  }
+
+  function updateCamera(camera, target) {
+    const distance = state.inVehicle ? 12 : 8;
+    const height = state.inVehicle ? 6 : 4.5;
     const targetPosition = new THREE.Vector3(
-      player.root.position.x - Math.sin(player.facing) * distance,
+      target.root.position.x - Math.sin(target.facing) * distance,
       height,
-      player.root.position.z - Math.cos(player.facing) * distance
+      target.root.position.z - Math.cos(target.facing) * distance
     );
     camera.position.lerp(targetPosition, 0.08);
 
     const lookTarget = new THREE.Vector3(
-      player.root.position.x,
+      target.root.position.x,
       1.4,
-      player.root.position.z
+      target.root.position.z
     );
     camera.lookAt(lookTarget);
   }
 
-  function updateCheckpointProximity(player, markers) {
-    let closestIndex = -1;
-    let closestDistance = CHECKPOINT_RADIUS;
+  function updateProximity(player, vehicle) {
+    // The reference point for proximity is player when on foot, vehicle when driving
+    const refPos = state.inVehicle ? vehicle.root.position : player.root.position;
 
-    markers.forEach((marker) => {
-      const dx = player.root.position.x - marker.position.x;
-      const dz = player.root.position.z - marker.position.z;
-      const distance = Math.hypot(dx, dz);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestIndex = marker.index;
+    let newPromptTarget = null;
+
+    if (state.inVehicle) {
+      // Always show exit prompt while in vehicle
+      newPromptTarget = "vehicle_exit";
+    } else {
+      // Check vehicle proximity
+      const dvx = refPos.x - vehicle.root.position.x;
+      const dvz = refPos.z - vehicle.root.position.z;
+      if (Math.hypot(dvx, dvz) < VEHICLE_ENTER_RADIUS) {
+        newPromptTarget = "vehicle";
       }
-    });
 
-    if (closestIndex !== state.activeCheckpointIndex) {
-      state.activeCheckpointIndex = closestIndex;
-      showCheckpointMessage(closestIndex);
+      // Check checkpoint proximity (only on foot)
+      if (newPromptTarget === null && state.markers) {
+        let closestIndex = -1;
+        let closestDist = CHECKPOINT_RADIUS;
+        state.markers.forEach((marker) => {
+          const dx = refPos.x - marker.position.x;
+          const dz = refPos.z - marker.position.z;
+          const d = Math.hypot(dx, dz);
+          if (d < closestDist) {
+            closestDist = d;
+            closestIndex = marker.index;
+          }
+        });
+        if (closestIndex >= 0) {
+          newPromptTarget = closestIndex;
+        }
+      }
+    }
+
+    if (newPromptTarget !== state.promptTarget) {
+      state.promptTarget = newPromptTarget;
+      updateInteractPrompt(newPromptTarget);
+
+      // Hide speech bubble when leaving a checkpoint area
+      if (newPromptTarget === null || newPromptTarget === "vehicle") {
+        hideSpeechBubble();
+      }
     }
   }
 
-  function showCheckpointMessage(index) {
-    const bubble = document.getElementById("speech-bubble");
+  function updateInteractPrompt(target) {
+    const prompt = document.getElementById("interact-prompt");
     const hint = document.getElementById("hud-hint");
-    if (!bubble) return;
+    if (!prompt) return;
 
-    const checkpoint = index >= 0 ? state.checkpoints[index] : null;
-
-    if (!checkpoint) {
-      bubble.classList.add("hidden");
+    if (target === null) {
+      prompt.classList.add("hidden");
       if (hint) hint.classList.remove("hidden");
       return;
     }
 
     if (hint) hint.classList.add("hidden");
+
+    if (target === "vehicle") {
+      prompt.textContent = "Press E to enter Batmobile";
+    } else if (target === "vehicle_exit") {
+      prompt.textContent = "Press E to exit Batmobile";
+    } else {
+      const cp = state.checkpoints[target];
+      const name = cp ? cp.character : "teammate";
+      prompt.textContent = "Press E to talk to " + name;
+    }
+    prompt.classList.remove("hidden");
+  }
+
+  function hideInteractPrompt() {
+    const prompt = document.getElementById("interact-prompt");
+    const hint = document.getElementById("hud-hint");
+    if (prompt) prompt.classList.add("hidden");
+    if (hint) hint.classList.remove("hidden");
+  }
+
+  function showCheckpointMessage(index) {
+    const bubble = document.getElementById("speech-bubble");
+    if (!bubble) return;
+    const checkpoint = state.checkpoints[index];
+    if (!checkpoint) return;
+
     document.getElementById("speech-character").textContent = checkpoint.character || "";
     document.getElementById("speech-city").textContent = checkpoint.city || "";
     document.getElementById("speech-message").textContent = checkpoint.message || "";
     bubble.classList.remove("hidden");
+  }
+
+  function hideSpeechBubble() {
+    const bubble = document.getElementById("speech-bubble");
+    if (bubble) bubble.classList.add("hidden");
+  }
+
+  function updateCheckpointRingAnimation(delta) {
+    state.ringTime += delta;
+    if (!state.markers) return;
+    state.markers.forEach((marker) => {
+      // Pulse ring emissive intensity
+      const ring = marker.group.children[0];
+      if (ring && ring.material) {
+        const base = state.collectedSet.has(marker.index) ? 1.2 : 0.7;
+        ring.material.emissiveIntensity = base + Math.sin(state.ringTime * 2.5 + marker.index) * 0.3;
+      }
+    });
   }
 
   function isKeyDown(...codes) {

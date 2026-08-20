@@ -13,20 +13,26 @@
       <header class="page-header">
         <h1>Batman Team Presentation Tour</h1>
         <p>
-          Drive Batman through a low-poly Gotham block with <strong>WASD</strong> or
-          <strong>arrow keys</strong>. Walk up to a teammate's glowing checkpoint to read
-          their update from <code>data/dialogue.json</code>.
+          Move Batman with <strong>WASD</strong> or <strong>arrow keys</strong>.
+          Press <strong>E</strong> near a teammate's glowing ring to talk and collect their update.
+          Press <strong>E</strong> near the Batmobile to enter or exit — drive between
+          <em>Wayne Plaza</em>, <em>Arkham Square</em>, and <em>Gotham Docks</em>.
         </p>
       </header>
       <section class="game-frame">
         <div id="game-container" aria-label="Batman 3D presentation game">
           <div id="hud">
-            <div id="hud-hint">Use WASD / Arrow Keys to move. Walk into a glowing marker.</div>
+            <div id="hud-hint">Use <strong>WASD</strong> / Arrow Keys to move. Press <strong>E</strong> near a teammate to talk. Press <strong>E</strong> near the Batmobile to enter/exit.</div>
+            <div id="interact-prompt" class="hidden"></div>
             <div id="speech-bubble" class="hidden">
               <div id="speech-character"></div>
               <div id="speech-city"></div>
               <div id="speech-message"></div>
             </div>
+          </div>
+          <div id="progress-tracker">
+            <div id="progress-title">Team Updates</div>
+            <ul id="progress-list"></ul>
           </div>
         </div>
       </section>
