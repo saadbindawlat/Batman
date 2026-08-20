@@ -436,7 +436,7 @@ class PresentationScene extends Phaser.Scene {
       return;
     }
 
-    const dim = this.add.rectangle(640, 360, GAME_WIDTH, GAME_HEIGHT, 0x05070f, 0.68);
+    const dim = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x05070f, 0.68);
     const card = this.add.graphics();
     card.fillStyle(0x101736, 0.97);
     card.lineStyle(3, 0x9bb0ff, 0.95);
@@ -468,17 +468,13 @@ class PresentationScene extends Phaser.Scene {
     this.endOverlay.setAlpha(0);
     this.tweens.add({ targets: this.endOverlay, alpha: 1, duration: 220 });
 
-    const restartZone = this.add.zone(640, 446, 240, 56).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    const restartZone = this.add.zone(0, 86, 240, 56).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    this.endOverlay.add(restartZone);
     restartZone.setDepth(41);
     restartZone.once('pointerdown', () => this.restartTour());
-    this.endOverlay.restartZone = restartZone;
   }
 
   restartTour() {
-    if (this.endOverlay?.restartZone) {
-      this.endOverlay.restartZone.destroy();
-    }
-
     if (this.endOverlay) {
       this.endOverlay.destroy();
       this.endOverlay = null;
