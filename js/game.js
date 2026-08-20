@@ -40,7 +40,9 @@
     const camera = buildCamera(container);
     const renderer = buildRenderer(container);
     const player = buildPlayer(scene);
-    const markers = buildCity(scene);
+    buildGround(scene);
+    buildBuildings(scene);
+    const markers = buildCheckpointMarkers(scene);
 
     state.clock = new THREE.Clock();
 
@@ -142,12 +144,6 @@
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
-  }
-
-  function buildCity(scene) {
-    buildGround(scene);
-    buildBuildings(scene);
-    return buildCheckpointMarkers(scene);
   }
 
   function buildGround(scene) {
