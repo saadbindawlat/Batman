@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Batman Team Presentation Tour</title>
+    <title>Batman Team Presentation Tour — Gotham 3D</title>
     <link rel="stylesheet" href="styles.css" />
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+    <script src="js/vendor/three.min.js"></script>
     <script src="js/game.js" defer></script>
   </head>
   <body>
@@ -13,12 +13,35 @@
       <header class="page-header">
         <h1>Batman Team Presentation Tour</h1>
         <p>
-          Travel across Gotham-style checkpoints, meet each teammate, and update
-          the presentation by editing <code>data/dialogue.json</code>.
+          Drive Batman through a 3D Gotham night-city, meet each teammate at their
+          checkpoint, and update the presentation by editing
+          <code>data/dialogue.json</code>.
         </p>
       </header>
       <section class="game-frame">
-        <div id="game-container" aria-label="Batman presentation game"></div>
+        <div id="game-container" aria-label="Batman presentation game">
+          <div id="hud-layer">
+            <div id="arrival-banner" class="hud-plate" aria-live="polite"></div>
+            <div id="progress-text" class="hud-plate hud-plate--corner"></div>
+            <div id="help-text" class="hud-plate hud-plate--help">
+              Move: A / D / W / S / ← / → or click a checkpoint beacon
+            </div>
+            <div id="speech-bubble" class="speech-bubble" hidden>
+              <p id="speech-bubble-text"></p>
+              <span id="speech-bubble-hint" class="speech-bubble-hint"></span>
+            </div>
+            <div id="end-overlay" class="end-overlay" hidden>
+              <div class="end-card">
+                <h2>Thank You</h2>
+                <p>
+                  You reached Knightfall Keep and completed the presentation tour.
+                  Replay the route any time for another run-through.
+                </p>
+                <button id="restart-button" type="button">Restart Tour</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   </body>

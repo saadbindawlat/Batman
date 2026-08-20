@@ -1,15 +1,23 @@
-const GAME_WIDTH = 1280;
-const GAME_HEIGHT = 720;
-const MOVE_SPEED = 260;
+/* Batman Team Presentation Tour — Gotham 3D
+ * A lightweight third-person Three.js scene, GTA-style chase camera, driving
+ * Batman between neon Gotham checkpoints. Presentation content is entirely
+ * data-driven from data/dialogue.json — see README for editing instructions.
+ */
+
+const MOVE_SPEED = 26; // world units / second
+const CAMERA_LERP = 0.08;
+
+// Route through the Gotham block, alternating sides of the avenue like the
+// original tour so each teammate gets their own corner of the city.
 const CHECKPOINT_POINTS = [
-  { x: 110, y: 580 },
-  { x: 245, y: 470 },
-  { x: 410, y: 560 },
-  { x: 565, y: 430 },
-  { x: 725, y: 535 },
-  { x: 895, y: 375 },
-  { x: 1045, y: 495 },
-  { x: 1165, y: 285 }
+  { x: -70, z: 46 },
+  { x: -46, z: 18 },
+  { x: -14, z: 40 },
+  { x: 16, z: 8 },
+  { x: 48, z: 34 },
+  { x: 74, z: 2 },
+  { x: 104, z: 30 },
+  { x: 132, z: -4 }
 ];
 
 const CHARACTER_STYLES = {
@@ -23,279 +31,361 @@ const CHARACTER_STYLES = {
   "Arkham Knight": { primary: 0x3f414f, secondary: 0x8b8f9b, accent: 0xcf3e40, skin: 0xd9b99f }
 };
 
-class PresentationScene extends Phaser.Scene {
-  constructor() {
-    super('presentation-scene');
-    this.route = [];
+const EMBLEMS = {
+  Batman: "🦇",
+  Bane: "✦",
+  Joker: "♦",
+  "Harley Quinn": "♥",
+  Scarecrow: "✕",
+  Robin: "R",
+  Catwoman: "⌒",
+  "Arkham Knight": "▲"
+};
+
+class GothamTourScene {
+  constructor(container, hud, checkpoints) {
+    this.container = container;
+    this.hud = hud;
+    this.checkpoints = checkpoints;
+    this.route = CHECKPOINT_POINTS.slice(0, checkpoints.length);
+
     this.currentIndex = 0;
     this.destinationIndex = 0;
     this.movingToIndex = null;
+    this.visited = new Array(checkpoints.length).fill(false);
     this.activeBubble = null;
-    this.endOverlay = null;
     this.bubbleCanDismiss = false;
-  }
+    this.endOverlay = false;
+    this.clock = new THREE.Clock();
+    this.labels = [];
+    this.heading = 0;
 
-  preload() {
-    this.load.json('dialogue', 'data/dialogue.json');
-  }
+    this.initRenderer();
+    this.initScene();
+    this.buildCity();
+    this.buildRoute();
+    this.buildCheckpoints();
+    this.buildCharacters();
+    this.initControls();
+    this.initCamera();
 
-  create() {
-    const data = this.cache.json.get('dialogue');
-    this.checkpoints = Array.isArray(data?.checkpoints) ? data.checkpoints : [];
-
-    if (this.checkpoints.length < 2) {
-      throw new Error('data/dialogue.json must include at least two checkpoints.');
-    }
-
-    this.route = CHECKPOINT_POINTS.slice(0, this.checkpoints.length);
-    this.visited = new Array(this.checkpoints.length).fill(false);
-
-    this.drawBackdrop();
-    this.drawRoute();
-    this.createHUD();
-    this.createCheckpoints();
-    this.createCharacters();
-    this.createControls();
+    window.addEventListener("resize", () => this.handleResize());
+    this.handleResize();
 
     this.showArrivalBanner(this.checkpoints[0].city);
-    this.time.delayedCall(350, () => this.openDialogue(0));
+    window.setTimeout(() => this.openDialogue(0), 350);
+
+    this.renderer.setAnimationLoop(() => this.tick());
   }
 
-  update(_, delta) {
-    this.handleKeyboardInput();
-
-    if (this.movingToIndex === null) {
-      this.applyIdleFloat(this.player, 0.0018);
-      return;
-    }
-
-    const target = this.route[this.movingToIndex];
-    const vector = new Phaser.Math.Vector2(target.x - this.player.x, target.y - this.player.y);
-    const distance = vector.length();
-
-    if (distance <= MOVE_SPEED * (delta / 1000)) {
-      this.player.setPosition(target.x, target.y);
-      this.movingToIndex = null;
-      this.currentIndex = this.destinationIndex;
-      this.player.baseY = target.y;
-      this.showArrivalBanner(this.checkpoints[this.currentIndex].city);
-      this.openDialogue(this.currentIndex);
-      return;
-    }
-
-    vector.normalize().scale(MOVE_SPEED * (delta / 1000));
-    this.player.x += vector.x;
-    this.player.y += vector.y;
-    this.player.baseY = this.player.y;
+  initRenderer() {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.container.prepend(this.renderer.domElement);
   }
 
-  drawBackdrop() {
-    const background = this.add.graphics();
-    const stripes = [0x09111f, 0x0b1630, 0x0d1a3f, 0x111f4d, 0x182555];
+  initScene() {
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x05070f);
+    this.scene.fog = new THREE.FogExp2(0x070b1c, 0.0105);
 
-    stripes.forEach((color, index) => {
-      background.fillStyle(color, 1 - index * 0.04);
-      background.fillRect(0, index * 150, GAME_WIDTH, 180);
+    const moon = new THREE.PointLight(0xd7dfff, 1.1, 400);
+    moon.position.set(120, 140, -60);
+    this.scene.add(moon);
+
+    const moonMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(9, 20, 20),
+      new THREE.MeshBasicMaterial({ color: 0xf3f6ff })
+    );
+    moonMesh.position.copy(moon.position);
+    this.scene.add(moonMesh);
+
+    this.scene.add(new THREE.AmbientLight(0x3b4680, 1.15));
+    this.scene.add(new THREE.HemisphereLight(0x364a8f, 0x05070f, 0.6));
+
+    const key = new THREE.DirectionalLight(0x8aa2ff, 0.55);
+    key.position.set(-40, 80, 40);
+    this.scene.add(key);
+
+    this.camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.5, 800);
+  }
+
+  buildCity() {
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(1200, 1200),
+      new THREE.MeshStandardMaterial({ color: 0x0a0d1c, roughness: 1 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    this.scene.add(ground);
+
+    const grid = new THREE.GridHelper(1200, 80, 0x1c2550, 0x11162c);
+    grid.position.y = 0.02;
+    this.scene.add(grid);
+
+    const buildingMat = (hue) =>
+      new THREE.MeshStandardMaterial({ color: hue, roughness: 0.85, metalness: 0.1 });
+    const windowMat = new THREE.MeshStandardMaterial({
+      color: 0x14183a,
+      emissive: 0xffe58a,
+      emissiveIntensity: 0.85,
+      roughness: 0.6
     });
 
-    background.fillStyle(0xd7dfff, 0.12);
-    background.fillCircle(1080, 120, 58);
+    const blockPalette = [0x11142a, 0x161a33, 0x0d1024, 0x191d3a];
+    const rng = mulberry32(1337);
 
-    for (let i = 0; i < 55; i += 1) {
-      const star = this.add.circle(
-        Phaser.Math.Between(40, GAME_WIDTH - 40),
-        Phaser.Math.Between(30, 240),
-        Phaser.Math.Between(1, 2),
-        0xf8fbff,
-        Phaser.Math.FloatBetween(0.25, 0.95)
+    for (let i = 0; i < 90; i += 1) {
+      const side = rng() > 0.5 ? 1 : -1;
+      const along = rng() * 260 - 60;
+      const offset = 24 + rng() * 70;
+      const x = along;
+      const z = side * offset + (rng() - 0.5) * 20;
+
+      if (this.isNearRoute(x, z, 16)) {
+        continue;
+      }
+
+      const width = 6 + rng() * 10;
+      const depth = 6 + rng() * 10;
+      const height = 12 + rng() * 70;
+
+      const building = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        buildingMat(blockPalette[Math.floor(rng() * blockPalette.length)])
       );
-      this.tweens.add({
-        targets: star,
-        alpha: { from: star.alpha, to: Math.max(0.15, star.alpha - 0.35) },
-        duration: Phaser.Math.Between(1800, 3200),
-        yoyo: true,
-        repeat: -1
-      });
-    }
+      building.position.set(x, height / 2, z);
+      building.castShadow = true;
+      building.receiveShadow = true;
+      this.scene.add(building);
 
-    const skyline = this.add.graphics();
-    skyline.fillStyle(0x05070f, 0.95);
-    [
-      { x: 0, w: 120, h: 170 },
-      { x: 90, w: 70, h: 230 },
-      { x: 150, w: 120, h: 160 },
-      { x: 265, w: 95, h: 260 },
-      { x: 350, w: 80, h: 190 },
-      { x: 430, w: 140, h: 280 },
-      { x: 560, w: 70, h: 210 },
-      { x: 635, w: 120, h: 170 },
-      { x: 748, w: 120, h: 245 },
-      { x: 855, w: 95, h: 180 },
-      { x: 940, w: 120, h: 290 },
-      { x: 1055, w: 95, h: 220 },
-      { x: 1140, w: 140, h: 190 }
-    ].forEach((building) => {
-      skyline.fillRect(building.x, GAME_HEIGHT - building.h, building.w, building.h);
-    });
-
-    const windowDots = this.add.graphics();
-    windowDots.fillStyle(0xffef96, 0.55);
-    for (let x = 30; x < GAME_WIDTH; x += 58) {
-      for (let y = 450; y < GAME_HEIGHT - 20; y += 32) {
-        if (Math.random() > 0.45) {
-          windowDots.fillRoundedRect(x, y, 10, 14, 2);
-        }
+      const windowStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.9, height * 0.85, depth * 0.9),
+        windowMat
+      );
+      windowStrip.position.copy(building.position);
+      windowStrip.scale.set(1.001, 1, 1.001);
+      if (rng() > 0.35) {
+        this.scene.add(windowStrip);
       }
     }
 
-    const fog = this.add.graphics();
-    fog.fillStyle(0x6472d9, 0.08);
-    fog.fillEllipse(420, 620, 540, 120);
-    fog.fillEllipse(960, 610, 620, 130);
+    // Distant skyline silhouettes for depth, fading into the fog.
+    const skylineMat = new THREE.MeshStandardMaterial({ color: 0x0b0f24, emissive: 0x0a0e22, emissiveIntensity: 0.4 });
+    for (let i = 0; i < 26; i += 1) {
+      const angle = (i / 26) * Math.PI * 2;
+      const radius = 260 + rng() * 60;
+      const height = 40 + rng() * 140;
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(18, height, 18), skylineMat);
+      tower.position.set(Math.cos(angle) * radius, height / 2, Math.sin(angle) * radius);
+      this.scene.add(tower);
+    }
   }
 
-  drawRoute() {
-    const route = this.add.graphics();
-    route.lineStyle(14, 0x1b2250, 0.8);
-    route.beginPath();
-    route.moveTo(this.route[0].x, this.route[0].y);
-    this.route.slice(1).forEach((point) => route.lineTo(point.x, point.y));
-    route.strokePath();
-
-    const glow = this.add.graphics();
-    glow.lineStyle(4, 0x86a4ff, 0.92);
-    glow.beginPath();
-    glow.moveTo(this.route[0].x, this.route[0].y);
-    this.route.slice(1).forEach((point) => glow.lineTo(point.x, point.y));
-    glow.strokePath();
-
+  isNearRoute(x, z, margin) {
     for (let i = 0; i < this.route.length - 1; i += 1) {
-      const start = this.route[i];
-      const end = this.route[i + 1];
-      const length = Phaser.Math.Distance.Between(start.x, start.y, end.x, end.y);
-      const steps = Math.floor(length / 32);
-
-      for (let step = 1; step < steps; step += 1) {
-        const t = step / steps;
-        const x = Phaser.Math.Interpolation.Linear([start.x, end.x], t);
-        const y = Phaser.Math.Interpolation.Linear([start.y, end.y], t);
-        this.add.circle(x, y, 3, 0xcad3ff, 0.35);
+      const a = this.route[i];
+      const b = this.route[i + 1];
+      if (distanceToSegment(x, z, a.x, a.z, b.x, b.z) < margin) {
+        return true;
       }
     }
+    return false;
   }
 
-  createHUD() {
-    this.arrivalBanner = this.add.container(640, 52);
-    const plate = this.add.graphics();
-    plate.fillStyle(0x101736, 0.92);
-    plate.lineStyle(2, 0x8aa2ff, 0.9);
-    plate.fillRoundedRect(-185, -24, 370, 48, 18);
-    plate.strokeRoundedRect(-185, -24, 370, 48, 18);
-    this.arrivalText = this.add.text(0, 0, '', {
-      fontFamily: 'Arial',
-      fontSize: '24px',
-      color: '#f8fbff',
-      fontStyle: 'bold'
-    }).setOrigin(0.5);
-    this.arrivalBanner.add([plate, this.arrivalText]);
+  buildRoute() {
+    const shape = new THREE.Shape();
+    const width = 6;
+    const points = this.route;
+    const left = [];
+    const right = [];
 
-    this.progressText = this.add.text(26, 28, '', {
-      fontFamily: 'Arial',
-      fontSize: '20px',
-      color: '#ffd95c'
-    });
+    for (let i = 0; i < points.length; i += 1) {
+      const prev = points[Math.max(0, i - 1)];
+      const next = points[Math.min(points.length - 1, i + 1)];
+      const dir = new THREE.Vector2(next.x - prev.x, next.z - prev.z).normalize();
+      const normal = new THREE.Vector2(-dir.y, dir.x);
+      left.push(new THREE.Vector2(points[i].x + normal.x * width, points[i].z + normal.y * width));
+      right.push(new THREE.Vector2(points[i].x - normal.x * width, points[i].z - normal.y * width));
+    }
 
-    this.helpText = this.add.text(26, 670, 'Move: A / D / W / S / ← / → or click a checkpoint marker', {
-      fontFamily: 'Arial',
-      fontSize: '18px',
-      color: '#dbe4ff'
-    });
+    shape.moveTo(left[0].x, left[0].y);
+    left.slice(1).forEach((p) => shape.lineTo(p.x, p.y));
+    right
+      .slice()
+      .reverse()
+      .forEach((p) => shape.lineTo(p.x, p.y));
+    shape.closePath();
+
+    const roadGeometry = new THREE.ShapeGeometry(shape);
+    roadGeometry.rotateX(-Math.PI / 2);
+    const road = new THREE.Mesh(
+      roadGeometry,
+      new THREE.MeshStandardMaterial({ color: 0x161d40, roughness: 0.7 })
+    );
+    road.position.y = 0.03;
+    road.receiveShadow = true;
+    this.scene.add(road);
+
+    const glowLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x, 0.1, p.z))),
+      new THREE.LineBasicMaterial({ color: 0x86a4ff, transparent: true, opacity: 0.9 })
+    );
+    this.scene.add(glowLine);
   }
 
-  createCheckpoints() {
+  buildCheckpoints() {
     this.markerNodes = this.route.map((point, index) => {
-      const halo = this.add.circle(point.x, point.y, 22, 0x8aa2ff, 0.16);
-      const ring = this.add.circle(point.x, point.y, 15, 0x203067, 1).setStrokeStyle(3, 0xa5b8ff, 0.85);
-      const dot = this.add.circle(point.x, point.y, 8, index === 0 ? 0xffd95c : 0xeff2ff);
-      const marker = this.add.container(0, 0, [halo, ring, dot]);
+      const checkpoint = this.checkpoints[index];
+      const style = CHARACTER_STYLES[checkpoint.character] || CHARACTER_STYLES.Batman;
+      const group = new THREE.Group();
+      group.position.set(point.x, 0, point.z);
 
-      const hitArea = this.add.zone(point.x, point.y, 56, 56).setOrigin(0.5).setInteractive({ useHandCursor: true });
-      hitArea.on('pointerdown', () => {
-        if (!this.activeBubble && !this.endOverlay) {
-          this.queueMovement(index);
-        }
-      });
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(3.4, 0.35, 12, 32),
+        new THREE.MeshStandardMaterial({
+          color: index === 0 ? 0xffd95c : 0xa5b8ff,
+          emissive: index === 0 ? 0xffd95c : 0x3a4d9c,
+          emissiveIntensity: 0.7
+        })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.4;
+      group.add(ring);
 
-      const cityLabel = this.add.text(point.x, point.y + 34, this.checkpoints[index].city, {
-        fontFamily: 'Arial',
-        fontSize: '16px',
-        color: '#edf2ff',
-        align: 'center',
-        wordWrap: { width: 150 }
-      }).setOrigin(0.5, 0);
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.9, 26, 12, 1, true),
+        new THREE.MeshBasicMaterial({ color: style.accent, transparent: true, opacity: 0.16, side: THREE.DoubleSide })
+      );
+      beam.position.y = 13;
+      group.add(beam);
 
-      return { halo, ring, dot, marker, cityLabel };
+      const beacon = new THREE.PointLight(style.accent, 1.1, 40);
+      beacon.position.y = 2;
+      group.add(beacon);
+
+      const hitArea = new THREE.Mesh(
+        new THREE.CylinderGeometry(4.5, 4.5, 4, 12),
+        new THREE.MeshBasicMaterial({ visible: false })
+      );
+      hitArea.position.y = 2;
+      hitArea.userData.checkpointIndex = index;
+      group.add(hitArea);
+
+      this.scene.add(group);
+
+      const cityLabel = this.createLabel(checkpoint.city, "world-label world-label--city");
+      cityLabel.anchor = group;
+      cityLabel.offset = new THREE.Vector3(0, -1.4, 0);
+
+      return { group, ring, hitArea, cityLabel };
     });
+
+    this.raycaster = new THREE.Raycaster();
+    this.pointer = new THREE.Vector2();
+    this.renderer.domElement.addEventListener("click", (event) => this.handleClick(event));
   }
 
-  createCharacters() {
-    this.characterSprites = [];
+  buildCharacters() {
+    this.characterGroups = this.checkpoints.map((checkpoint, index) => {
+      const isPlayer = index === 0;
+      const point = this.route[index];
+      const avatar = buildCharacterAvatar(checkpoint.character, isPlayer);
 
-    this.checkpoints.forEach((checkpoint, index) => {
-      if (index === 0) {
-        this.player = this.buildCharacterAvatar(checkpoint.character, this.route[0].x, this.route[0].y, true);
-        this.player.setDepth(12);
-        this.characterSprites.push(this.player);
-        return;
+      if (isPlayer) {
+        avatar.position.set(point.x, 0, point.z);
+        this.player = avatar;
+      } else {
+        const direction = index % 2 === 0 ? 1 : -1;
+        avatar.position.set(point.x + direction * 5, 0, point.z - 1);
+        avatar.rotation.y = Math.PI;
+
+        const nameLabel = this.createLabel(checkpoint.character, "world-label world-label--name");
+        nameLabel.anchor = avatar;
+        nameLabel.offset = new THREE.Vector3(0, 5.4, 0);
       }
 
-      const direction = index % 2 === 0 ? 1 : -1;
-      const x = this.route[index].x + direction * 56;
-      const y = this.route[index].y - 10;
-      const avatar = this.buildCharacterAvatar(checkpoint.character, x, y, false);
-      avatar.setDepth(8);
-      this.characterSprites.push(avatar);
-
-      this.add.text(x, y - 72, checkpoint.character, {
-        fontFamily: 'Arial',
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: '#fefefe'
-      }).setOrigin(0.5);
+      this.scene.add(avatar);
+      return avatar;
     });
+
+    const youLabel = this.createLabel("YOU", "world-label world-label--you");
+    youLabel.anchor = this.player;
+    youLabel.offset = new THREE.Vector3(0, 5.6, 0);
   }
 
-  createControls() {
-    this.keys = this.input.keyboard.addKeys({
-      left: Phaser.Input.Keyboard.KeyCodes.LEFT,
-      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
-      up: Phaser.Input.Keyboard.KeyCodes.UP,
-      down: Phaser.Input.Keyboard.KeyCodes.DOWN,
-      a: Phaser.Input.Keyboard.KeyCodes.A,
-      d: Phaser.Input.Keyboard.KeyCodes.D,
-      w: Phaser.Input.Keyboard.KeyCodes.W,
-      s: Phaser.Input.Keyboard.KeyCodes.S,
-      space: Phaser.Input.Keyboard.KeyCodes.SPACE,
-      enter: Phaser.Input.Keyboard.KeyCodes.ENTER
+  initControls() {
+    this.keys = {};
+    window.addEventListener("keydown", (event) => {
+      this.keys[event.code] = true;
+      this.handleKeyboardInput(event);
+    });
+    window.addEventListener("keyup", (event) => {
+      this.keys[event.code] = false;
     });
 
-    this.input.on('pointerdown', () => {
-      if (this.activeBubble && this.bubbleCanDismiss) {
+    this.hud.speechBubble.addEventListener("click", () => {
+      if (this.bubbleCanDismiss) {
         this.closeDialogue();
       }
     });
+    this.hud.restartButton.addEventListener("click", () => this.restartTour());
   }
 
-  handleKeyboardInput() {
+  initCamera() {
+    this.cameraOffset = new THREE.Vector3(0, 7.5, -14);
+    this.upAxis = new THREE.Vector3(0, 1, 0);
+    const start = this.route[0];
+    this.camera.position.set(start.x, 8, start.z - 16);
+    this.camera.lookAt(start.x, 3, start.z);
+  }
+
+  handleResize() {
+    const rect = this.container.getBoundingClientRect();
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+  }
+
+  createLabel(text, className) {
+    const el = document.createElement("div");
+    el.className = className;
+    el.textContent = text;
+    this.hud.worldLabelLayer.appendChild(el);
+    const label = { el, anchor: null, offset: new THREE.Vector3() };
+    this.labels.push(label);
+    return label;
+  }
+
+  handleClick(event) {
+    if (this.activeBubble || this.endOverlay) {
+      return;
+    }
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hits = this.raycaster.intersectObjects(this.markerNodes.map((m) => m.hitArea));
+    if (hits.length > 0) {
+      this.queueMovement(hits[0].object.userData.checkpointIndex);
+    }
+  }
+
+  handleKeyboardInput(event) {
     if (this.endOverlay) {
-      if (Phaser.Input.Keyboard.JustDown(this.keys.space) || Phaser.Input.Keyboard.JustDown(this.keys.enter)) {
+      if (event.code === "Space" || event.code === "Enter") {
         this.restartTour();
       }
       return;
     }
 
     if (this.activeBubble) {
-      if (this.bubbleCanDismiss && (Phaser.Input.Keyboard.JustDown(this.keys.space) || Phaser.Input.Keyboard.JustDown(this.keys.enter))) {
+      if (this.bubbleCanDismiss && (event.code === "Space" || event.code === "Enter")) {
         this.closeDialogue();
       }
       return;
@@ -305,21 +395,11 @@ class PresentationScene extends Phaser.Scene {
       return;
     }
 
-    if (
-      Phaser.Input.Keyboard.JustDown(this.keys.right) ||
-      Phaser.Input.Keyboard.JustDown(this.keys.d) ||
-      Phaser.Input.Keyboard.JustDown(this.keys.down) ||
-      Phaser.Input.Keyboard.JustDown(this.keys.s)
-    ) {
+    if (["ArrowRight", "ArrowDown", "KeyD", "KeyS"].includes(event.code)) {
       this.queueMovement(Math.min(this.checkpoints.length - 1, this.currentIndex + 1));
     }
 
-    if (
-      Phaser.Input.Keyboard.JustDown(this.keys.left) ||
-      Phaser.Input.Keyboard.JustDown(this.keys.a) ||
-      Phaser.Input.Keyboard.JustDown(this.keys.up) ||
-      Phaser.Input.Keyboard.JustDown(this.keys.w)
-    ) {
+    if (["ArrowLeft", "ArrowUp", "KeyA", "KeyW"].includes(event.code)) {
       this.queueMovement(Math.max(0, this.currentIndex - 1));
     }
   }
@@ -339,9 +419,90 @@ class PresentationScene extends Phaser.Scene {
     if (this.destinationIndex === this.currentIndex) {
       return;
     }
-
     const step = Math.sign(this.destinationIndex - this.currentIndex);
     this.movingToIndex = this.currentIndex + step;
+  }
+
+  tick() {
+    const delta = Math.min(this.clock.getDelta(), 0.1);
+    this.updateMovement(delta);
+    this.updateCamera(delta);
+    this.updateLabels();
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  updateMovement(delta) {
+    if (this.movingToIndex === null) {
+      this.player.position.y = Math.sin(performance.now() * 0.0018) * 0.15;
+      return;
+    }
+
+    const target = this.route[this.movingToIndex];
+    const dx = target.x - this.player.position.x;
+    const dz = target.z - this.player.position.z;
+    const distance = Math.hypot(dx, dz);
+    const step = MOVE_SPEED * delta;
+
+    if (distance <= step) {
+      this.player.position.x = target.x;
+      this.player.position.z = target.z;
+      this.movingToIndex = null;
+      this.currentIndex = this.destinationIndex;
+      this.showArrivalBanner(this.checkpoints[this.currentIndex].city);
+      this.openDialogue(this.currentIndex);
+      return;
+    }
+
+    const nx = dx / distance;
+    const nz = dz / distance;
+    this.player.position.x += nx * step;
+    this.player.position.z += nz * step;
+    this.heading = Math.atan2(nx, nz);
+    this.player.rotation.y = this.heading;
+  }
+
+  updateCamera(delta) {
+    const rotatedOffset = this.cameraOffset.clone().applyAxisAngle(this.upAxis, this.heading);
+    const desired = new THREE.Vector3(
+      this.player.position.x + rotatedOffset.x,
+      rotatedOffset.y,
+      this.player.position.z + rotatedOffset.z
+    );
+
+    this.camera.position.lerp(desired, 1 - Math.pow(1 - CAMERA_LERP, delta * 60));
+    const lookTarget = new THREE.Vector3(this.player.position.x, 3.2, this.player.position.z);
+    this.camera.lookAt(lookTarget);
+  }
+
+  updateLabels() {
+    const width = this.renderer.domElement.clientWidth;
+    const height = this.renderer.domElement.clientHeight;
+
+    this.labels.forEach((label) => {
+      if (!label.anchor) {
+        return;
+      }
+      const worldPos = label.anchor.position.clone().add(label.offset);
+      const projected = worldPos.project(this.camera);
+      const behindCamera = projected.z > 1;
+      const x = (projected.x * 0.5 + 0.5) * width;
+      const y = (-projected.y * 0.5 + 0.5) * height;
+
+      label.el.style.display = behindCamera ? "none" : "block";
+      label.el.style.left = `${x}px`;
+      label.el.style.top = `${y}px`;
+    });
+
+    if (this.activeBubble) {
+      const worldPos = this.activeBubble.speaker.position.clone().add(new THREE.Vector3(0, 6.2, 0));
+      const projected = worldPos.project(this.camera);
+      const behindCamera = projected.z > 1;
+      const x = (projected.x * 0.5 + 0.5) * width;
+      const y = (-projected.y * 0.5 + 0.5) * height;
+      this.hud.speechBubble.style.display = behindCamera ? "none" : "";
+      this.hud.speechBubble.style.left = `${x}px`;
+      this.hud.speechBubble.style.top = `${y}px`;
+    }
   }
 
   openDialogue(index) {
@@ -354,53 +515,21 @@ class PresentationScene extends Phaser.Scene {
     this.highlightCheckpoint(index);
 
     const checkpoint = this.checkpoints[index];
-    const speaker = index === 0 ? this.player : this.characterSprites[index];
-    const bubbleWidth = 360;
-    const text = `${checkpoint.character}\n${checkpoint.message}`;
-    const bodyText = this.add.text(0, 0, text, {
-      fontFamily: 'Arial',
-      fontSize: '20px',
-      color: '#1b2033',
-      align: 'center',
-      wordWrap: { width: 300 }
-    }).setOrigin(0.5);
+    const speaker = index === 0 ? this.player : this.characterGroups[index];
+    const isLast = index === this.checkpoints.length - 1;
 
-    const hint = this.add.text(0, bodyText.height / 2 + 26, index === this.checkpoints.length - 1 ? 'Press Space, Enter, or click to finish' : 'Press Space, Enter, or click to continue', {
-      fontFamily: 'Arial',
-      fontSize: '16px',
-      color: '#4b5170',
-      align: 'center'
-    }).setOrigin(0.5, 0.5);
-
-    const bubbleHeight = bodyText.height + 86;
-    const background = this.add.graphics();
-    background.fillStyle(0xfafcff, 0.98);
-    background.lineStyle(4, 0x20253e, 0.92);
-    background.fillRoundedRect(-bubbleWidth / 2, -bubbleHeight / 2, bubbleWidth, bubbleHeight, 26);
-    background.strokeRoundedRect(-bubbleWidth / 2, -bubbleHeight / 2, bubbleWidth, bubbleHeight, 26);
-    background.fillTriangle(-18, bubbleHeight / 2 - 2, 18, bubbleHeight / 2 - 2, 0, bubbleHeight / 2 + 24);
-
-    const bubbleX = Phaser.Math.Clamp(speaker.x, 215, GAME_WIDTH - 215);
-    const bubbleY = Phaser.Math.Clamp(speaker.y - 136, 116, GAME_HEIGHT - 220);
-
-    this.activeBubble = this.add.container(bubbleX, bubbleY, [background, bodyText, hint]);
-    this.activeBubble.setDepth(30);
-    this.activeBubble.setAlpha(0);
-    this.activeBubble.setScale(0.86);
+    this.hud.speechBubbleText.textContent = `${checkpoint.character}\n${checkpoint.message}`;
+    this.hud.speechBubbleHint.textContent = isLast
+      ? "Press Space, Enter, or click to finish"
+      : "Press Space, Enter, or click to continue";
+    this.hud.speechBubble.hidden = false;
+    this.hud.speechBubble.style.display = "";
     this.bubbleCanDismiss = false;
+    this.activeBubble = { speaker };
 
-    this.tweens.add({
-      targets: this.activeBubble,
-      alpha: 1,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 220,
-      ease: 'Back.Out'
-    });
-
-    this.time.delayedCall(220, () => {
+    window.setTimeout(() => {
       this.bubbleCanDismiss = true;
-    });
+    }, 220);
   }
 
   closeDialogue() {
@@ -408,26 +537,17 @@ class PresentationScene extends Phaser.Scene {
       return;
     }
 
-    const bubble = this.activeBubble;
+    this.hud.speechBubble.hidden = true;
     this.activeBubble = null;
     this.bubbleCanDismiss = false;
 
-    this.tweens.add({
-      targets: bubble,
-      alpha: 0,
-      scaleX: 0.92,
-      scaleY: 0.92,
-      duration: 160,
-      onComplete: () => bubble.destroy()
-    });
-
     if (this.currentIndex === this.checkpoints.length - 1) {
-      this.time.delayedCall(180, () => this.showEndScreen());
+      window.setTimeout(() => this.showEndScreen(), 180);
       return;
     }
 
     if (this.currentIndex !== this.destinationIndex) {
-      this.time.delayedCall(120, () => this.beginNextLeg());
+      window.setTimeout(() => this.beginNextLeg(), 120);
     }
   }
 
@@ -435,266 +555,220 @@ class PresentationScene extends Phaser.Scene {
     if (this.endOverlay) {
       return;
     }
-
-    const dim = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x05070f, 0.68);
-    const card = this.add.graphics();
-    card.fillStyle(0x101736, 0.97);
-    card.lineStyle(3, 0x9bb0ff, 0.95);
-    card.fillRoundedRect(-240, -150, 480, 300, 26);
-    card.strokeRoundedRect(-240, -150, 480, 300, 26);
-    const title = this.add.text(0, -82, 'Thank You', {
-      fontFamily: 'Arial',
-      fontSize: '42px',
-      fontStyle: 'bold',
-      color: '#ffffff'
-    }).setOrigin(0.5);
-    const body = this.add.text(0, -10, 'You reached Knightfall Keep and completed the presentation tour.\nReplay the route any time for another run-through.', {
-      fontFamily: 'Arial',
-      fontSize: '22px',
-      color: '#dfe7ff',
-      align: 'center'
-    }).setOrigin(0.5);
-    const button = this.add.graphics();
-    button.fillStyle(0xffd95c, 1);
-    button.fillRoundedRect(-120, 58, 240, 56, 18);
-    const buttonText = this.add.text(0, 86, 'Restart Tour', {
-      fontFamily: 'Arial',
-      fontSize: '24px',
-      fontStyle: 'bold',
-      color: '#1a1f33'
-    }).setOrigin(0.5);
-
-    this.endOverlay = this.add.container(640, 360, [dim, card, title, body, button, buttonText]).setDepth(40);
-    this.endOverlay.setAlpha(0);
-    this.tweens.add({ targets: this.endOverlay, alpha: 1, duration: 220 });
-
-    const restartZone = this.add.zone(0, 86, 240, 56).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    this.endOverlay.add(restartZone);
-    restartZone.setDepth(41);
-    restartZone.once('pointerdown', () => this.restartTour());
+    this.endOverlay = true;
+    this.hud.endOverlay.hidden = false;
   }
 
   restartTour() {
-    if (this.endOverlay) {
-      this.endOverlay.destroy();
-      this.endOverlay = null;
-    }
+    this.hud.endOverlay.hidden = true;
+    this.endOverlay = false;
 
-    if (this.activeBubble) {
-      this.activeBubble.destroy();
-      this.activeBubble = null;
-    }
+    this.hud.speechBubble.hidden = true;
+    this.activeBubble = null;
+    this.bubbleCanDismiss = false;
 
     this.currentIndex = 0;
     this.destinationIndex = 0;
     this.movingToIndex = null;
-    this.bubbleCanDismiss = false;
     this.visited = new Array(this.checkpoints.length).fill(false);
-    this.player.setPosition(this.route[0].x, this.route[0].y);
-    this.player.baseY = this.route[0].y;
-    this.markerNodes.forEach(({ halo, ring, dot }) => {
-      halo.setFillStyle(0x8aa2ff, 0.16);
-      ring.setStrokeStyle(3, 0xa5b8ff, 0.85);
-      dot.setFillStyle(0xeff2ff, 1);
+
+    this.player.position.set(this.route[0].x, 0, this.route[0].z);
+    this.player.rotation.y = 0;
+    this.heading = 0;
+
+    this.markerNodes.forEach(({ ring }) => {
+      ring.material.color.set(0xa5b8ff);
+      ring.material.emissive.set(0x3a4d9c);
     });
-    this.markerNodes[0].dot.setFillStyle(0xffd95c, 1);
+    this.markerNodes[0].ring.material.color.set(0xffd95c);
+    this.markerNodes[0].ring.material.emissive.set(0xffd95c);
+
     this.showArrivalBanner(this.checkpoints[0].city);
     this.refreshProgress();
-    this.time.delayedCall(250, () => this.openDialogue(0));
+    window.setTimeout(() => this.openDialogue(0), 250);
   }
 
   showArrivalBanner(cityName) {
-    this.arrivalText.setText(`Now arriving: ${cityName}`);
-    this.arrivalBanner.setAlpha(0);
-    this.arrivalBanner.y = 40;
-    this.tweens.add({
-      targets: this.arrivalBanner,
-      alpha: 1,
-      y: 52,
-      duration: 240,
-      ease: 'Sine.Out'
+    this.hud.arrivalBanner.textContent = `Now arriving: ${cityName}`;
+    this.hud.arrivalBanner.style.opacity = "0";
+    requestAnimationFrame(() => {
+      this.hud.arrivalBanner.style.opacity = "1";
     });
   }
 
   refreshProgress() {
     const visitedCount = this.visited.filter(Boolean).length;
-    this.progressText.setText(`Checkpoint ${Math.max(1, this.currentIndex + 1)} / ${this.checkpoints.length}  •  Visited ${visitedCount}`);
+    this.hud.progressText.textContent = `Checkpoint ${Math.max(1, this.currentIndex + 1)} / ${this.checkpoints.length}  •  Visited ${visitedCount}`;
   }
 
   highlightCheckpoint(index) {
-    this.markerNodes.forEach(({ halo, ring, dot }, nodeIndex) => {
+    this.markerNodes.forEach(({ ring }, nodeIndex) => {
       if (nodeIndex === index) {
-        halo.setFillStyle(0xffd95c, 0.28);
-        ring.setStrokeStyle(3, 0xffe995, 1);
-        dot.setFillStyle(0xffd95c, 1);
+        ring.material.color.set(0xffd95c);
+        ring.material.emissive.set(0xffd95c);
       } else if (this.visited[nodeIndex]) {
-        halo.setFillStyle(0x8aa2ff, 0.2);
-        ring.setStrokeStyle(3, 0xb4c3ff, 1);
-        dot.setFillStyle(0xa8baff, 1);
+        ring.material.color.set(0xb4c3ff);
+        ring.material.emissive.set(0x4a5db0);
       } else {
-        halo.setFillStyle(0x8aa2ff, 0.16);
-        ring.setStrokeStyle(3, 0xa5b8ff, 0.85);
-        dot.setFillStyle(0xeff2ff, 1);
+        ring.material.color.set(0xa5b8ff);
+        ring.material.emissive.set(0x3a4d9c);
       }
     });
   }
-
-  buildCharacterAvatar(name, x, y, isPlayer) {
-    const style = CHARACTER_STYLES[name] || CHARACTER_STYLES.Batman;
-    const container = this.add.container(x, y);
-    const shadow = this.add.ellipse(0, 12, isPlayer ? 48 : 42, 14, 0x000000, 0.28);
-    const cape = this.add.triangle(0, 8, -20, 20, 20, 20, 0, -28, style.secondary, 0.92).setScale(isPlayer ? 1.1 : 1);
-    const body = this.add.graphics();
-    body.fillStyle(style.primary, 1);
-    body.fillRoundedRect(isPlayer ? -17 : -15, isPlayer ? -28 : -24, isPlayer ? 34 : 30, isPlayer ? 52 : 46, 10);
-    const belt = this.add.rectangle(0, 9, isPlayer ? 30 : 26, 7, style.accent, 1);
-    const head = this.add.circle(0, -40, isPlayer ? 18 : 16, style.skin, 1);
-    const mask = this.add.graphics();
-    mask.fillStyle(style.primary, 1);
-    mask.fillEllipse(0, -44, isPlayer ? 40 : 36, isPlayer ? 30 : 28);
-
-    if (name === 'Batman' || name === 'Catwoman' || name === 'Arkham Knight') {
-      const ears = this.add.graphics();
-      ears.fillStyle(style.primary, 1);
-      ears.fillTriangle(-14, -56, -6, -82, 0, -54);
-      ears.fillTriangle(14, -56, 6, -82, 0, -54);
-      container.add(ears);
-    }
-
-    if (name === 'Joker') {
-      const hair = this.add.graphics();
-      hair.fillStyle(style.secondary, 1);
-      hair.fillEllipse(0, -56, 40, 20);
-      hair.fillTriangle(-18, -54, -2, -70, 10, -52);
-      hair.fillTriangle(18, -54, 2, -70, -10, -52);
-      container.add(hair);
-    }
-
-    if (name === 'Harley Quinn') {
-      const leftPigtail = this.add.circle(-22, -46, 7, style.secondary, 1);
-      const rightPigtail = this.add.circle(22, -46, 7, style.primary, 1);
-      const collar = this.add.triangle(0, -16, -14, 0, 14, 0, 0, 16, 0xf0f1f5, 1);
-      container.add([leftPigtail, rightPigtail, collar]);
-    }
-
-    if (name === 'Bane') {
-      const tubes = this.add.graphics();
-      tubes.lineStyle(3, style.accent, 1);
-      tubes.beginPath();
-      tubes.moveTo(-10, -44);
-      tubes.lineTo(-20, -58);
-      tubes.moveTo(10, -44);
-      tubes.lineTo(20, -58);
-      tubes.strokePath();
-      container.add(tubes);
-    }
-
-    if (name === 'Scarecrow') {
-      const hood = this.add.graphics();
-      hood.fillStyle(style.primary, 1);
-      hood.fillEllipse(0, -46, 42, 34);
-      hood.fillTriangle(-20, -48, 0, -74, 20, -48);
-      container.add(hood);
-    }
-
-    if (name === 'Robin') {
-      const capeTail = this.add.triangle(0, 12, -18, 16, 18, 16, 0, 42, style.accent, 0.95);
-      container.add(capeTail);
-    }
-
-    const eyes = this.add.graphics();
-    eyes.fillStyle(name === 'Joker' ? 0x272b42 : 0xf7fbff, 1);
-    eyes.fillEllipse(-6, -42, 5, 4);
-    eyes.fillEllipse(6, -42, 5, 4);
-    const mouth = this.add.graphics();
-    mouth.lineStyle(2, name === 'Joker' ? 0xbf3f45 : 0x2a3045, 1);
-    mouth.beginPath();
-    mouth.arc(0, -34, 6, 0, Math.PI, false);
-    mouth.strokePath();
-
-    if (name === 'Bane' || name === 'Arkham Knight') {
-      const visor = this.add.graphics();
-      visor.lineStyle(3, style.accent, 1);
-      visor.beginPath();
-      visor.moveTo(-11, -45);
-      visor.lineTo(0, -39);
-      visor.lineTo(11, -45);
-      visor.strokePath();
-      container.add(visor);
-    }
-
-    if (name === 'Catwoman') {
-      const goggles = this.add.graphics();
-      goggles.lineStyle(2, style.accent, 1);
-      goggles.strokeEllipse(-6, -43, 8, 7);
-      goggles.strokeEllipse(6, -43, 8, 7);
-      container.add(goggles);
-    }
-
-    const emblem = this.add.text(0, -2, this.getEmblem(name), {
-      fontFamily: 'Arial',
-      fontSize: isPlayer ? '18px' : '16px',
-      fontStyle: 'bold',
-      color: '#f7f8ff'
-    }).setOrigin(0.5);
-
-    container.add([shadow, cape, body, belt, head, mask, eyes, mouth, emblem]);
-    if (isPlayer) {
-      const playerTag = this.add.text(0, -84, 'YOU', {
-        fontFamily: 'Arial',
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: '#ffd95c',
-        backgroundColor: '#0f1534',
-        padding: { x: 8, y: 4 }
-      }).setOrigin(0.5);
-      container.add(playerTag);
-    }
-    container.baseY = y;
-    return container;
-  }
-
-  getEmblem(name) {
-    switch (name) {
-      case 'Batman':
-        return '🦇';
-      case 'Bane':
-        return '✦';
-      case 'Joker':
-        return '♦';
-      case 'Harley Quinn':
-        return '♥';
-      case 'Scarecrow':
-        return '✕';
-      case 'Robin':
-        return 'R';
-      case 'Catwoman':
-        return '⌒';
-      case 'Arkham Knight':
-        return '▲';
-      default:
-        return '•';
-    }
-  }
-
-  applyIdleFloat(target, speed) {
-    target.y = target.baseY + Math.sin(this.time.now * speed) * 2;
-  }
 }
 
-window.addEventListener('load', () => {
-  const config = {
-    type: Phaser.AUTO,
-    width: GAME_WIDTH,
-    height: GAME_HEIGHT,
-    parent: 'game-container',
-    backgroundColor: '#060814',
-    scale: {
-      mode: Phaser.Scale.FIT,
-      autoCenter: Phaser.Scale.CENTER_BOTH
-    },
-    scene: [PresentationScene]
+function buildCharacterAvatar(name, isPlayer) {
+  const style = CHARACTER_STYLES[name] || CHARACTER_STYLES.Batman;
+  const group = new THREE.Group();
+  const scale = isPlayer ? 1.12 : 1;
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color: style.primary, roughness: 0.6 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: style.skin, roughness: 0.7 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: style.accent, emissive: style.accent, emissiveIntensity: 0.3 });
+  const secondaryMat = new THREE.MeshStandardMaterial({ color: style.secondary, roughness: 0.6 });
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.9 * scale, 1.7 * scale, 4, 8), bodyMat);
+  body.position.y = 1.7 * scale;
+  body.castShadow = true;
+  group.add(body);
+
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.92 * scale, 0.12, 8, 16), accentMat);
+  belt.rotation.x = Math.PI / 2;
+  belt.position.y = 1.05 * scale;
+  group.add(belt);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.62 * scale, 16, 16), skinMat);
+  head.position.y = 2.95 * scale;
+  group.add(head);
+
+  const cowl = new THREE.Mesh(new THREE.SphereGeometry(0.68 * scale, 16, 16, 0, Math.PI * 2, 0, Math.PI * 0.62), bodyMat);
+  cowl.position.y = 3.05 * scale;
+  group.add(cowl);
+
+  const cape = new THREE.Mesh(
+    new THREE.ConeGeometry(1.3 * scale, 2.6 * scale, 4, 1, true),
+    secondaryMat
+  );
+  cape.rotation.x = Math.PI;
+  cape.position.set(0, 1.9 * scale, 0.55 * scale);
+  cape.scale.set(1, 1, 0.4);
+  group.add(cape);
+
+  if (name === "Batman" || name === "Catwoman" || name === "Arkham Knight") {
+    [-1, 1].forEach((side) => {
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.16 * scale, 0.55 * scale, 8), bodyMat);
+      ear.position.set(side * 0.32 * scale, 3.55 * scale, 0.05);
+      group.add(ear);
+    });
+  }
+
+  if (name === "Joker") {
+    const hair = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.22, 8, 16, Math.PI), secondaryMat);
+    hair.position.y = 3.15;
+    hair.rotation.z = Math.PI;
+    group.add(hair);
+  }
+
+  if (name === "Harley Quinn") {
+    [-1, 1].forEach((side) => {
+      const pigtail = new THREE.Mesh(
+        new THREE.SphereGeometry(0.22, 10, 10),
+        new THREE.MeshStandardMaterial({ color: side < 0 ? style.secondary : style.primary })
+      );
+      pigtail.position.set(side * 0.62, 3.1, 0);
+      group.add(pigtail);
+    });
+  }
+
+  if (name === "Bane") {
+    [-1, 1].forEach((side) => {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.6, 8), accentMat);
+      tube.position.set(side * 0.4, 3.2, -0.3);
+      tube.rotation.x = 0.4;
+      group.add(tube);
+    });
+  }
+
+  if (name === "Scarecrow") {
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1, 12, 1, true), bodyMat);
+    hood.position.y = 3.3;
+    group.add(hood);
+  }
+
+  if (name === "Robin") {
+    const capeTail = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.6, 4, 1, true), accentMat);
+    capeTail.rotation.x = Math.PI;
+    capeTail.position.set(0, 1.3, 0.4);
+    capeTail.scale.set(1, 1, 0.3);
+    group.add(capeTail);
+  }
+
+  if (name === "Bane" || name === "Arkham Knight") {
+    const visor = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.04, 6, 16, Math.PI), accentMat);
+    visor.position.set(0, 3.05 * scale, 0.55 * scale);
+    group.add(visor);
+  }
+
+  if (name === "Catwoman") {
+    const goggles = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 8, 16), accentMat);
+    goggles.position.set(0, 3.05 * scale, 0.55 * scale);
+    group.add(goggles);
+  }
+
+  group.userData.emblem = EMBLEMS[name] || "•";
+  return group;
+}
+
+function distanceToSegment(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const lengthSq = dx * dx + dz * dz;
+  let t = lengthSq === 0 ? 0 : ((px - ax) * dx + (pz - az) * dz) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx;
+  const cz = az + t * dz;
+  return Math.hypot(px - cx, pz - cz);
+}
+
+// Deterministic PRNG so the skyline layout is stable across reloads.
+function mulberry32(seed) {
+  let a = seed;
+  return function random() {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+async function boot() {
+  const container = document.getElementById("game-container");
+  const hud = {
+    worldLabelLayer: document.getElementById("hud-layer"),
+    arrivalBanner: document.getElementById("arrival-banner"),
+    progressText: document.getElementById("progress-text"),
+    speechBubble: document.getElementById("speech-bubble"),
+    speechBubbleText: document.getElementById("speech-bubble-text"),
+    speechBubbleHint: document.getElementById("speech-bubble-hint"),
+    endOverlay: document.getElementById("end-overlay"),
+    restartButton: document.getElementById("restart-button")
   };
 
-  new Phaser.Game(config);
+  const response = await fetch("data/dialogue.json");
+  const data = await response.json();
+  const checkpoints = Array.isArray(data?.checkpoints) ? data.checkpoints : [];
+
+  if (checkpoints.length < 2) {
+    throw new Error("data/dialogue.json must include at least two checkpoints.");
+  }
+
+  new GothamTourScene(container, hud, checkpoints);
+}
+
+window.addEventListener("load", () => {
+  boot().catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error("Failed to start Gotham 3D tour:", error);
+  });
 });

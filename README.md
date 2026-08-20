@@ -1,23 +1,25 @@
-# Batman Team Presentation Tour
+# Batman Team Presentation Tour — Gotham 3D
 
-A simple Phaser.js browser game for team presentations. Batman travels between Gotham-style checkpoints, meets seven Batman-universe teammates, and displays each teammate's update in a speech bubble.
+A third-person **3D** browser experience built with Three.js for team presentations. Batman drives/walks through a night-time Gotham city block with a GTA-style chase camera, visits eight Batman-universe teammates at glowing checkpoint beacons, and displays each teammate's update in a speech bubble.
 
-The game uses **original simplified stylized avatars** built from Phaser shapes and text. They are inspired by each character's signature colors/silhouettes, but they are not copied from copyrighted comic or movie artwork.
+The game uses **original simplified low-poly avatars** built from Three.js primitives (capsules, cones, spheres, tori). They are inspired by each character's signature colors/silhouettes, but they are not copied from copyrighted comic or movie artwork.
 
 ## Features
 
-- One continuous 2D presentation route with **8 checkpoints / characters**
-- Smooth point-to-point movement with **arrow keys, WASD, or click-to-move checkpoints**
+- A continuous 3D Gotham city block: procedurally scattered buildings, glowing windows, a distant skyline, moonlight, and fog for depth
+- Third-person **chase camera** that follows Batman like a GTA-style driving/walking tour
+- **8 checkpoints / characters**, each marked with a colored beacon ring and light beam matching their palette
+- Smooth point-to-point movement with **arrow keys, WASD, or click-to-move checkpoint beacons**
 - Speech bubbles driven by **`data/dialogue.json`** so presentation content is editable without touching game code
-- Gotham-inspired dark visual theme with clear, projector-friendly UI
 - End screen with **restart/replay** support
-- Static-site friendly setup for **GitHub Pages**
+- Static-site friendly setup for **GitHub Pages** — no build step, no bundler
 
 ## Project structure
 
-- `/index.html` - page shell and Phaser entrypoint
-- `/styles.css` - page layout and framing styles
-- `/js/game.js` - Phaser scene and character drawing logic
+- `/index.html` - page shell, HUD overlay markup, and Three.js entrypoint
+- `/styles.css` - page layout, framing, and HUD/speech-bubble overlay styles
+- `/js/game.js` - Three.js scene, city generation, camera, movement, and dialogue logic
+- `/js/vendor/three.min.js` - vendored Three.js build (no external network required at runtime)
 - `/data/dialogue.json` - editable checkpoint names and speech bubble messages
 
 ## Run locally
@@ -49,7 +51,7 @@ Each checkpoint has:
 
 Guidelines:
 
-- Keep the `character` names aligned with the existing eight characters unless you also update the art logic in `js/game.js`.
+- Keep the `character` names aligned with the existing eight characters unless you also update the avatar logic in `js/game.js`.
 - Change `city` to any checkpoint label you want.
 - Change `message` to the exact text you want shown in the speech bubble.
 - Keep the checkpoints in the order you want Batman to visit them.
@@ -64,16 +66,16 @@ This repository is ready to deploy directly from the **root** of the default bra
 4. Choose the default branch and the **`/ (root)`** folder.
 5. Save, then wait for GitHub Pages to publish the site.
 
-## Swap in custom character art later
+## Swap in custom character art or models later
 
-Right now, each character is drawn in code for a consistent original style. If you want to replace those with custom PNG sprites later:
+Right now, each character and building is drawn with simple Three.js geometry for a consistent original style. If you want to swap in custom 3D models later:
 
-1. Add image files such as `assets/characters/batman.png`, `assets/characters/bane.png`, etc.
-2. Load them in the Phaser `preload()` method inside `js/game.js`.
-3. Replace the `buildCharacterAvatar(...)` calls with `this.add.image(...)` or `this.add.sprite(...)` using the matching filenames.
-4. Keep image sizes roughly consistent so the scene stays balanced.
+1. Add model files (for example glTF `.glb`) under an `assets/` folder.
+2. Load them with `THREE.GLTFLoader` (add the loader script) inside `js/game.js`.
+3. Replace the `buildCharacterAvatar(...)` group construction with the loaded model, keeping the same `position`/`rotation` usage so movement and the chase camera keep working.
+4. Keep model scale roughly consistent with the existing capsule-based avatars (~3.5 world units tall) so the scene stays balanced.
 
 ## Notes
 
-- Phaser is loaded from a CDN, so no build step is required.
+- Three.js is vendored locally in `js/vendor/three.min.js`, so the tour works fully offline and needs no build step.
 - The implementation is intentionally lightweight so content updates stay easy before each demo.
