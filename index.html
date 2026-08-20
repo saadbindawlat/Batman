@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Batman Team Presentation Tour</title>
+    <title>Batman Team Presentation Tour - 3D</title>
     <link rel="stylesheet" href="styles.css" />
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
     <script src="js/game.js" defer></script>
   </head>
   <body>
@@ -13,12 +13,22 @@
       <header class="page-header">
         <h1>Batman Team Presentation Tour</h1>
         <p>
-          Travel across Gotham-style checkpoints, meet each teammate, and update
-          the presentation by editing <code>data/dialogue.json</code>.
+          Drive Batman through a low-poly Gotham block with <strong>WASD</strong> or
+          <strong>arrow keys</strong>. Walk up to a teammate's glowing checkpoint to read
+          their update from <code>data/dialogue.json</code>.
         </p>
       </header>
       <section class="game-frame">
-        <div id="game-container" aria-label="Batman presentation game"></div>
+        <div id="game-container" aria-label="Batman 3D presentation game">
+          <div id="hud">
+            <div id="hud-hint">Use WASD / Arrow Keys to move. Walk into a glowing marker.</div>
+            <div id="speech-bubble" class="hidden">
+              <div id="speech-character"></div>
+              <div id="speech-city"></div>
+              <div id="speech-message"></div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   </body>
